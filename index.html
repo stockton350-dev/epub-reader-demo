@@ -25,7 +25,7 @@ body {
 <div id="viewer"></div>
 
 <script>
-var book = ePub("sample.epub");
+var book = ePub("./sample.epub");
 
 var rendition = book.renderTo("viewer", {
   width: "100%",
@@ -36,4 +36,5 @@ rendition.display();
 </script>
 
 </body>
+
 </html>
