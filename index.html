@@ -1,40 +1,83 @@
-<!DOCTYPE html>
-<html>
+<!doctype html>
+<html lang="en">
 <head>
-<meta charset="utf-8">
-<title>EPUB Reader Demo</title>
-<script src="https://unpkg.com/epubjs/dist/epub.min.js"></script>
-
-<style>
-body {
-  font-family: Arial;
-  margin: 20px;
-}
-
-#viewer {
-  height: 85vh;
-  border: 1px solid #ccc;
-}
-</style>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>EPUB Online Reader Demo</title>
+  <script src="https://unpkg.com/epubjs/dist/epub.min.js"></script>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 24px; }
+    #status { padding: 10px 12px; border: 1px solid #ddd; border-radius: 8px; background: #fafafa; }
+    #status b { font-weight: 700; }
+    #viewer { height: 85vh; border: 1px solid #ccc; margin-top: 12px; }
+    .ok { color: #0a7a0a; }
+    .bad { color: #b00020; white-space: pre-wrap; }
+    .small { font-size: 12px; color: #444; margin-top: 6px; }
+  </style>
 </head>
-
 <body>
+  <h1>EPUB Online Reader Demo</h1>
 
-<h2>EPUB Online Reader Demo</h2>
+  <div id="status">
+    <div><b>Status:</b> <span id="msg">Starting…</span></div>
+    <div class="small">EPUB path: <code id="epubPath"></code></div>
+  </div>
 
-<div id="viewer"></div>
+  <div id="viewer"></div>
 
-<script>
-var book = ePub("./sample.epub");
+  <script>
+    const EPUB_URL = "./sample.epub";
+    document.getElementById("epubPath").textContent = EPUB_URL;
 
-var rendition = book.renderTo("viewer", {
-  width: "100%",
-  height: "100%"
-});
+    const msgEl = document.getElementById("msg");
+    function setMsg(text, kind) {
+      msgEl.textContent = text;
+      msgEl.className = kind || "";
+    }
 
-rendition.display();
-</script>
+    // 1) First, verify the file can be fetched
+    fetch(EPUB_URL, { cache: "no-store" })
+      .then(r => {
+        if (!r.ok) throw new Error(`Fetch failed: ${r.status} ${r.statusText}`);
+        setMsg("EPUB fetched OK. Loading into reader…", "ok");
+        return r.blob();
+      })
+      .then(() => {
+        // 2) Load via EPUB.js
+        const book = ePub(EPUB_URL);
 
+        book.on("openFailed", err => {
+          setMsg("EPUB openFailed:\n" + (err?.message || err), "bad");
+        });
+
+        book.on("error", err => {
+          setMsg("EPUB error:\n" + (err?.message || err), "bad");
+        });
+
+        const rendition = book.renderTo("viewer", { width: "100%", height: "100%" });
+
+        rendition.on("rendered", () => {
+          setMsg("Rendered. If you still see blank pages, the EPUB may be malformed.", "ok");
+        });
+
+        rendition.on("relocated", () => {
+          // keep status as-is; relocated means it moved to a section/page
+        });
+
+        rendition.display()
+          .catch(err => setMsg("rendition.display() failed:\n" + (err?.message || err), "bad"));
+      })
+      .catch(err => {
+        setMsg(String(err), "bad");
+      });
+
+    // 3) Also capture any uncaught JS errors
+    window.addEventListener("error", (e) => {
+      setMsg("JS error:\n" + (e?.message || e), "bad");
+    });
+    window.addEventListener("unhandledrejection", (e) => {
+      setMsg("Unhandled promise rejection:\n" + (e?.reason?.message || e?.reason || e), "bad");
+    });
+  </script>
 </body>
-
 </html>
