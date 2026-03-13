@@ -1,0 +1,347 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>EPUB Reader</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+  <script src="https://unpkg.com/epubjs/dist/epub.min.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400;0,600;1,400&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #f5f0e8;
+      --surface: #fdfaf4;
+      --border: #d8cfc0;
+      --text: #2c2416;
+      --text-muted: #7a6e5f;
+      --accent: #8b4513;
+      --accent-light: #c4793a;
+      --shadow: 0 2px 12px rgba(44,36,22,0.10);
+      --nav-h: 56px;
+      --bar-h: 40px;
+    }
+
+    body {
+      font-family: 'DM Sans', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* ── Top bar ── */
+    #topbar {
+      height: var(--nav-h);
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      padding: 0 20px;
+      gap: 12px;
+      flex-shrink: 0;
+      box-shadow: var(--shadow);
+      z-index: 10;
+    }
+
+    #topbar h1 {
+      font-family: 'Lora', serif;
+      font-size: 18px;
+      font-weight: 600;
+      color: var(--accent);
+      flex: 1;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .upload-btn {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 7px 14px;
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      font-family: 'DM Sans', sans-serif;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background 0.18s;
+      white-space: nowrap;
+    }
+    .upload-btn:hover { background: var(--accent-light); }
+    #fileInput { display: none; }
+
+    /* ── Status ── */
+    #statusBar {
+      height: var(--bar-h);
+      display: flex;
+      align-items: center;
+      padding: 0 20px;
+      font-size: 13px;
+      color: var(--text-muted);
+      background: var(--bg);
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+      gap: 8px;
+    }
+    #statusBar.ok   { color: #2a6e2a; }
+    #statusBar.bad  { color: #b00020; }
+    #statusDot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: var(--text-muted);
+      flex-shrink: 0;
+      transition: background 0.3s;
+    }
+    #statusBar.ok  #statusDot { background: #2a6e2a; }
+    #statusBar.bad #statusDot { background: #b00020; }
+    #statusBar.loading #statusDot {
+      background: var(--accent-light);
+      animation: pulse 1s ease-in-out infinite;
+    }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+
+    /* ── Reader area ── */
+    #readerWrap {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      position: relative;
+    }
+
+    #viewer {
+      flex: 1;
+      overflow: hidden;
+      background: var(--surface);
+      position: relative;
+    }
+
+    /* EPUB.js injects an iframe — style it nicely */
+    #viewer iframe {
+      border: none !important;
+    }
+
+    /* ── Nav arrows ── */
+    .nav-arrow {
+      position: absolute;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 44px;
+      height: 72px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 22px;
+      color: var(--text-muted);
+      transition: all 0.18s;
+      z-index: 5;
+      box-shadow: var(--shadow);
+      user-select: none;
+    }
+    .nav-arrow:hover { color: var(--accent); border-color: var(--accent); }
+    .nav-arrow:active { transform: translateY(-50%) scale(0.95); }
+    #prevBtn { left: 10px; }
+    #nextBtn { right: 10px; }
+
+    /* ── Bottom bar ── */
+    #bottomBar {
+      height: var(--bar-h);
+      background: var(--surface);
+      border-top: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 16px;
+      flex-shrink: 0;
+      font-size: 13px;
+      color: var(--text-muted);
+    }
+
+    #progressWrap {
+      flex: 1;
+      margin: 0 14px;
+      height: 4px;
+      background: var(--border);
+      border-radius: 2px;
+      overflow: hidden;
+    }
+    #progressBar {
+      height: 100%;
+      background: var(--accent);
+      border-radius: 2px;
+      width: 0%;
+      transition: width 0.4s ease;
+    }
+
+    /* ── Landing / empty state ── */
+    #landing {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 18px;
+      background: var(--surface);
+      z-index: 20;
+    }
+    #landing .book-icon {
+      font-size: 64px;
+      opacity: 0.35;
+    }
+    #landing p {
+      font-family: 'Lora', serif;
+      font-size: 18px;
+      color: var(--text-muted);
+      font-style: italic;
+    }
+    #landing .hint {
+      font-size: 13px;
+      color: var(--text-muted);
+      opacity: 0.7;
+    }
+    #landing.hidden { display: none; }
+
+    /* keyboard hint */
+    .kbd {
+      display: inline-block;
+      padding: 1px 6px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      font-size: 11px;
+      font-family: monospace;
+    }
+  </style>
+</head>
+<body>
+
+  <div id="topbar">
+    <h1 id="bookTitle">EPUB Reader</h1>
+
+  </div>
+
+  <div id="statusBar">
+    <span id="statusDot"></span>
+    <span id="statusMsg">Open an EPUB file to start reading.</span>
+  </div>
+
+  <div id="readerWrap">
+    <div id="viewer"></div>
+
+    <button class="nav-arrow" id="prevBtn" title="Previous page">‹</button>
+    <button class="nav-arrow" id="nextBtn" title="Next page">›</button>
+
+    <div id="landing">
+      <div class="book-icon">📖</div>
+      <p>Open an EPUB to begin reading</p>
+      <span class="hint">Use <span class="kbd">←</span> <span class="kbd">→</span> keys or the arrows to navigate</span>
+    </div>
+  </div>
+
+  <div id="bottomBar">
+    <span id="locLabel">—</span>
+    <div id="progressWrap"><div id="progressBar"></div></div>
+    <span id="pageLabel">— / —</span>
+  </div>
+
+  <script>
+    let currentBook = null;
+    let currentRendition = null;
+
+    const statusBar  = document.getElementById('statusBar');
+    const statusMsg  = document.getElementById('statusMsg');
+    const bookTitle  = document.getElementById('bookTitle');
+    const landing    = document.getElementById('landing');
+    const locLabel   = document.getElementById('locLabel');
+    const pageLabel  = document.getElementById('pageLabel');
+    const progressBar= document.getElementById('progressBar');
+
+    function setStatus(msg, kind) {
+      statusMsg.textContent = msg;
+      statusBar.className = kind || '';
+    }
+
+    function initBook(source, name) {
+      if (currentBook) { currentBook.destroy(); currentBook = null; }
+      bookTitle.textContent = name || 'EPUB Reader';
+
+      const book = ePub(source);
+      currentBook = book;
+
+      book.on('openFailed', err => setStatus('openFailed: ' + (err?.message || err), 'bad'));
+      book.on('error',      err => setStatus('book error: '  + (err?.message || err), 'bad'));
+
+      const rendition = book.renderTo('viewer', {
+        width: '100%', height: '100%', spread: 'none', flow: 'paginated',
+      });
+      currentRendition = rendition;
+
+      rendition.on('relocated', loc => {
+        locLabel.textContent = 'Section ' + (loc.start.index + 1);
+        progressBar.style.width = ((loc.start.percentage || 0) * 100).toFixed(1) + '%';
+      });
+      rendition.on('rendered', () => {
+        setStatus('Loaded: ' + (name || 'book'), 'ok');
+        landing.classList.add('hidden');
+      });
+
+      book.ready.then(() => book.loaded.metadata)
+        .then(meta => { if (meta?.title) bookTitle.textContent = meta.title; })
+        .catch(() => {});
+      book.ready.then(() => book.locations.generate(1024)).catch(() => {});
+
+      rendition.display().catch(err => {
+        setStatus('display() failed: ' + (err?.message || err), 'bad');
+      });
+    }
+
+    function loadEpub(url, name) {
+      if (currentBook) { currentBook.destroy(); currentBook = null; }
+      landing.classList.add('hidden');
+      setStatus('Fetching EPUB…', 'loading');
+
+      fetch(url)
+        .then(r => {
+          if (!r.ok) throw new Error('HTTP ' + r.status + ' ' + r.statusText);
+          setStatus('Parsing EPUB…', 'loading');
+          return r.arrayBuffer();
+        })
+        .then(buffer => {
+          setStatus('Rendering…', 'loading');
+          initBook(buffer, name);
+        })
+        .catch(err => {
+          setStatus('Fetch failed: ' + err.message, 'bad');
+          landing.classList.remove('hidden');
+        });
+    }
+
+
+    document.getElementById('prevBtn').addEventListener('click', () => {
+      currentRendition?.prev();
+    });
+    document.getElementById('nextBtn').addEventListener('click', () => {
+      currentRendition?.next();
+    });
+    document.addEventListener('keydown', e => {
+      if (e.key === 'ArrowLeft')  currentRendition?.prev();
+      if (e.key === 'ArrowRight') currentRendition?.next();
+    });
+
+    // Auto-load EPUB (same directory on GitHub Pages)
+    loadEpub('./sample.epub', 'Sample Book');
+  </script>
+</body>
+</html>
